@@ -12,7 +12,11 @@
 
 Adafruit_PN532 nfc(SDA_PIN, SCL_PIN);
 
-char serverAddress[] = "192.168.0.127";  // server address
+//char serverAddress[] = "192.168.0.127";  // server address
+//char serverAddress[] = "192.168.137.1";  // server address
+//char serverAddress[] = "10.70.197.193";  // server address
+char serverAddress[] = "192.168.232.168";  // server address
+
 int port = 8000;
 
 WiFiClient wifi;
@@ -24,6 +28,12 @@ const char *password = "123123123";
 String payload_base = "/?tag=";
 String payload = "";
 String buffer = "";
+
+void connectToNetwork();
+void handleNetworkConnected(String tag);
+void handleNoNetwork(String tag);
+void trySendBuffer();
+void readTag();
 
 void setup(void) {
   Serial.begin(115200);
@@ -38,7 +48,7 @@ void setup(void) {
     Serial.print("\nPlaca PN53x não encontrada");
     while (1);
   }
-  connectToInternet();
+  connectToNetwork();
   delay(2000);
 
   Serial.print("Encontrou chip PN5");
@@ -48,18 +58,86 @@ void setup(void) {
   Serial.print('.');
   Serial.println((versiondata >> 8) & 0xFF, DEC);
 
-  Serial.println("Esperando por um cartão ISO14443A...");
+  // Serial.println("Esperando por um cartão ISO14443A...");
 }
 
+bool tagProcessed = true; 
+
+
+
 void loop(void) {
+  
+  // uint8_t success;
+  // uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };
+  // uint8_t uidLength;
+
+  // success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength);
+
+  // if (success) {
+  //   Serial.println("Cartão ISO14443A encontrado!");
+    // delay(1000);
+    // Serial.print(" Comprimento do UID: ");
+    // Serial.print(uidLength, DEC);
+    // Serial.println(" bytes");
+    // Serial.print(" Valor UID: ");
+    // nfc.PrintHex(uid, uidLength);
+    // Serial.println("");
+
+    // String result = "";
+
+    // for (int i = 0; i < uidLength; i++) {
+    //   result += String(uid[i], HEX);
+    // }
+
+    // Serial.print("result: ");
+    // Serial.println(result);
+
+    // if (WiFi.status() == WL_CONNECTED) {
+    //   handleInternetConnected(result);
+    // } else {
+    //   handleNoInternet(result);
+    // }
+
+    // tagProcessed = true;
+
+    // delay(1000);
+
+    if (tagProcessed) {
+      readTag();
+    } else {
+
+      // A cada 30 segundos, tenta enviar dados do buffer para o servidor
+      static unsigned long lastBufferSendTime = 0;
+      if (millis() - lastBufferSendTime > 30000) {
+        trySendBuffer();
+        lastBufferSendTime = millis();
+      }
+      
+      // Inicia uma nova leitura
+      readTag();
+    }
+}
+  
+  // A cada 30 segundos, tenta enviar dados do buffer para o servidor
+//     static unsigned long lastBufferSendTime = 0;
+//     if (!tagProcessed && millis() - lastBufferSendTime > 30000) {
+//       trySendBuffer();
+//       lastBufferSendTime = millis();
+//     }
+// }
+
+
+void readTag() {
   uint8_t success;
   uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };
   uint8_t uidLength;
 
+  Serial.println("Esperando por um cartão ISO14443A...");
   success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength);
 
   if (success) {
     Serial.println("Cartão ISO14443A encontrado!");
+    
     delay(1000);
     Serial.print(" Comprimento do UID: ");
     Serial.print(uidLength, DEC);
@@ -78,23 +156,15 @@ void loop(void) {
     Serial.println(result);
 
     if (WiFi.status() == WL_CONNECTED) {
-      handleInternetConnected(result);
+      handleNetworkConnected(result);
     } else {
-      handleNoInternet(result);
+      handleNoNetwork(result);
     }
 
-    delay(1000);
-  }
-
-  // A cada 30 segundos, tenta enviar dados do buffer para o servidor
-  static unsigned long lastBufferSendTime = 0;
-  if (millis() - lastBufferSendTime > 30000) {
-    trySendBuffer();
-    lastBufferSendTime = millis();
+    tagProcessed = false;  // Marca a tag como processada
   }
 }
-
-void handleInternetConnected(String tag) {
+void handleNetworkConnected(String tag) {
   payload = payload_base + tag;
 
   String endpoint = "/api/receber-json/";
@@ -107,12 +177,12 @@ void handleInternetConnected(String tag) {
 
   StaticJsonDocument<200> doc;
   doc["tag_value"] = tag;
-  doc["year"] = tm_info->tm_year + 1970;
-  doc["month"] = tm_info->tm_mon + 1;
-  doc["day"] = tm_info->tm_mday;
-  doc["hour"] = tm_info->tm_hour;
-  doc["minute"] = tm_info->tm_min;
-  doc["second"] = tm_info->tm_sec;
+  // doc["year"] = tm_info->tm_year + 1970;
+  // doc["month"] = tm_info->tm_mon + 1;
+  // doc["day"] = tm_info->tm_mday;
+  // doc["hour"] = tm_info->tm_hour;
+  // doc["minute"] = tm_info->tm_min;
+  // doc["second"] = tm_info->tm_sec;
   String jsonBody;
   serializeJson(doc, jsonBody);
 
@@ -163,6 +233,7 @@ void handleInternetConnected(String tag) {
     //handleNoInternet(tag);
     noConnectionWithServer(tag);
   }
+   tagProcessed = false;
 }
 
 void noConnectionWithServer(String tag){
@@ -175,19 +246,25 @@ void noConnectionWithServer(String tag){
   Serial.print("Conteúdo do buffer: ");
   Serial.println(buffer);
 
+  trySendBuffer();
   delay(1000);
 }
-void handleNoInternet(String tag) {
+void handleNoNetwork(String tag) {
   if (buffer.length() > 0) {
     buffer += ",";
   }
   buffer += tag;
 
-  Serial.println("Sem conexão com a Internet. Adicionando tag ao buffer.");
+  Serial.println("Sem conexão com a rede. Adicionando tag ao buffer.");
   Serial.print("Conteúdo do buffer: ");
   Serial.println(buffer);
 
+  tagProcessed = true;
+
+  readTag();
   delay(1000);
+
+
 }
 
 void trySendBuffer() {
@@ -210,40 +287,41 @@ void trySendBuffer() {
       client.beginBody();
       client.print(bufferData);
       client.endRequest();
-
+      
       delay(5000);
 
-      Serial.println("Solicitação de upload de buffer enviada. Aguardando resposta...");
+      Serial.println("Solicitacao de upload de buffer enviada. Aguardando resposta...");
 
       if (client.available()) {
-        Serial.println("Dados disponníveis para leitura. Iniciando leitura...");
+        Serial.println("Dados disponniveis para leitura. Iniciando leitura...");
 
         while (client.available()) {
           char c = client.read();
           Serial.print(c);
         }
 
-        Serial.println("Response recebido. Fechando Conexando conexão...");
+        Serial.println("Response recebido. Fechando Conexando conexao...");
       } else {
-        Serial.println("Sem dados disponíveis para leitura.");
+        Serial.println("Sem dados disponiveis para leitura.");
       }
 
       client.flush();
       client.stop();
       buffer = "";  // Limpa o buffer após o envio bem-sucedido
-      Serial.println("\nConexão fechada");
+      Serial.println("\nConexao fechada");
     } else {
-      Serial.println("Falha na conexão com o servidor para upload do buffer!");
+      Serial.println("Falha na conexao com o servidor para upload do buffer!");
       setup();
     }
+    tagProcessed = true;
   }
 }
 
-void connectToInternet() {
+void connectToNetwork() {
   Serial.println("\nConectando ao Wi-Fi...");
   WiFi.begin(ssid, password);
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 10) {
     delay(1000);
     //Serial.println(".");
     attempts++;
