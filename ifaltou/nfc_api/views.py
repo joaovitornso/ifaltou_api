@@ -33,8 +33,8 @@ class NFCAPIListView(generics.ListCreateAPIView):
 @csrf_exempt
 def receber_json(request):
     if request.method in ['GET', 'POST']:
-        tag = request.GET.get('tag')
-        print("TAG: " + str(tag))
+        #tag = request.GET.get('tag')
+        #print("TAG: " + str(tag))
         
         if request.method == 'POST': 
             tag = request.GET.get('tag')
@@ -46,16 +46,22 @@ def receber_json(request):
                 # Obtendo os dados JSON da requisição POST
                 data = json.loads(request.body)
                 
-                 # Criando uma instância do modelo NFCReading com os dados recebidos
-                nfc_reading = NFCReading(
-                    tag=data.get('tag_value', ''),
-                    timestamp = timezone.now()
-                )
+                #Verificando se já existe um registro com a mesma tag_id
+                tag_id = data.get('tag_value', '')
+                existing_record = NFCReading.objects.filter(tag_id=tag_id).first()
 
-                # Salvando a instância no banco de dados
-                nfc_reading.save()
-                print("TAG adicionada ao banco de dados")
-                print(nfc_reading)
+                if existing_record:
+                    
+                    print("Registro já existe. Faça algo aqui.")
+                else:
+                    # Se o registro não existir, crie um novo
+                    nfc_reading = NFCReading(
+                        tag_id=tag_id,
+                        timestamp=timezone.now()
+                    )
+                    nfc_reading.save()
+                    print("Novo registro adicionado ao banco de dados")
+                    print(nfc_reading)
                 
                 tag = request.GET.get('tag')
                 
@@ -84,7 +90,7 @@ def receber_json(request):
         response_data = {'status': 'error', 'message': 'Apenas requisicoes POST e GET sao suportadas'}
         return JsonResponse(response_data, status=405)
     
-@api_view(['GET', 'POST']) 
+"""@api_view(['GET', 'POST']) 
 def get_buffer(request):
     if request.method == 'POST':
         tags = request.GET.get('tags') 
@@ -113,6 +119,37 @@ def get_buffer(request):
     else:
         # Se a requisição não for POST, retornar um erro
         response_data = {'status': 'error', 'message': 'BUFFER: Apenas requisicoes POST sao suportadas'}
-        return JsonResponse(response_data, status=405)   
+        return JsonResponse(response_data, status=405)   """
         
-            
+@api_view(['GET', 'POST']) 
+def get_buffer(request):
+    if request.method == 'POST':
+        # Obtendo os dados JSON da requisição POST
+        try:
+            data = json.loads(request.body)
+            tags = data.get('tags', [])
+
+            print("Aqui estão as TAGs: " + str(tags))
+
+            for tag_value in tags:
+                # Criando uma instância do modelo NFCReading para cada tag na lista
+                nfc_reading = NFCReading(
+                    tag_id=tag_value,
+                    timestamp=timezone.now()
+                )
+                # Salvando a instância no banco de dados
+                nfc_reading.save()
+                print("TAG adicionada ao banco de dados")
+                print(nfc_reading)
+
+            # Enviando uma resposta de sucesso
+            response_data = {'status': 'success', 'message': 'Dados do buffer recebidos com sucesso', 'tags': tags}
+            return JsonResponse(response_data)
+        except json.JSONDecodeError as e:
+            # Lidar com erros de decodificação JSON, se necessário
+            response_data = {'status': 'error', 'message': f'Erro na decodificacao JSON do buffer: {str(e)}'}
+            return JsonResponse(response_data, status=400)
+    else:
+        # Se a requisição não for POST, retornar um erro
+        response_data = {'status': 'error', 'message': 'BUFFER: Apenas requisicoes POST sao suportadas'}
+        return JsonResponse(response_data, status=405)
